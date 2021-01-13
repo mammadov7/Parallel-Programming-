@@ -1,0 +1,8 @@
+#!/bin/bash -l
+
+#SBATCH -n 100
+#SBATCH -N 100
+
+srun hostname
+srun sleep 1h
+

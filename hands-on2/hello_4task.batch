@@ -1,0 +1,7 @@
+#!/bin/bash -l
+
+#SBATCH -n 4
+#SBATCH -N 2
+
+mpirun hello
+
