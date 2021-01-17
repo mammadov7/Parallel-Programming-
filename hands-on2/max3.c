@@ -76,12 +76,14 @@ int main(int argc, char**argv) {
       }
     }
   }
+  // Free
+  for(i = 0; i < m; i++)
+		free(tab[i]);
+	free(tab);
+
 	// We could do the MPI_send from each proc to 0 proc
 	// And compute the global max in proc O
 	// But, doing MPI_Reduce is better
-	for(i = 0; i < m; i++)
-		free(tab[i]);
-	free(tab);
   MPI_Reduce(max, global_max, m, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
 
 #if DEBUG
@@ -100,7 +102,10 @@ int main(int argc, char**argv) {
 	  	printf("(Seed %d, Size %d) Max value = %d, Array number %d\n", s, n, global_max[i], i);
 	}// End if (rank == 0)
 
+  free(global_max);
+  free(max);
   MPI_Finalize();
   return 0;
 }
+
 
