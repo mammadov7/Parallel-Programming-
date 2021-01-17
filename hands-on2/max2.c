@@ -16,6 +16,7 @@ int main(int argc, char**argv) {
   int i;
   int max ;
   double t1, t2;
+	int global_max = 0;
 
   /* MPI Initialization */
   MPI_Init(&argc, &argv);
@@ -49,22 +50,29 @@ int main(int argc, char**argv) {
   for(i=0; i<n; i++) {
     tab[i] = lrand48()%n;
   }
+  
+  int local_start = rank * (n/size);
+  int local_end = (rank + 1) * (n/size);
+	if ( rank == (size - 1) )
+		local_end = n;
 
   /* start the measurement */
-  t1=MPI_Wtime();
+	if( rank ==0 )
+ 		t1=MPI_Wtime();
 
   /* search for the max value */
   max=tab[0];
-  for(i=0; i<n; i++) {
+  for(i=local_start; i<local_end; i++) {
     if(tab[i] > max) {
       max = tab[i];
     }
   }
 
-  /* stop the measurement */
-  t2=MPI_Wtime();
+	// We could do the MPI_send from each proc to 0 proc
+	// And compute the global max in proc O
+	// But, doing MPI_Reduce is better
 
-  printf("Computation time: %f s\n", t2-t1);
+	MPI_Reduce(&max, &global_max, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
 
 #if DEBUG
   printf("the array contains:\n");
@@ -73,9 +81,14 @@ int main(int argc, char**argv) {
   }
   printf("\n");
 #endif
+	
+	if( rank == 0 ){
+    /* stop the measurement */
+    t2=MPI_Wtime();
+    printf("Computation time: %f s\n", t2-t1);
+  	printf("(Seed %d, Size %d) Max value = %d, Time = %g s\n", s, n, global_max, t2-t1);
+	}// End if (rank == 0)
 
-  printf("(Seed %d, Size %d) Max value = %d, Time = %g s\n", s, n, max, t2-t1);
   MPI_Finalize();
   return 0;
 }
-
