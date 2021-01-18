@@ -5,31 +5,6 @@
  * Sequential Max
  */
 
-
-
-/**
-* The goals of implementation:
-* 1) You can use any number of tasks and arrays
-* The Idea of implementation:
-* 2) Root task will manage the distribution of arrays
-*	Each task firstly waits a message from the root
-*	to inter in the loop for receiving the array and
-*	and the message which will indicate the end of data.
-* If number of tasks more than nb arrays, the excess tasks
-* will tarminate without doing anythig, cause they will
-* receive directly end message. 
-* If not, size = 5, M = 8: 
-	Array	Task
-	1	1
-	2	2
-	3	3
-	4	4
-	5	1
-	6	2
-	7	3
-	8	4
-*/
-
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,7 +18,8 @@ int main(int argc, char**argv) {
   int *tab;
   int max;
   int end = 0;
-
+  int *tasks; // table for determining which task did which table
+  int ready = 0;
   /* MPI Initialization */
   MPI_Init(&argc, &argv);
 
@@ -71,28 +47,35 @@ int main(int argc, char**argv) {
   // Root task
   if( rank == 0 ){
     srand48(s);
-    /* Allocate the array */
-  //  tab = (int *) malloc(sizeof(int) * n);
+
+    tasks = (int *) malloc(sizeof(int) * m);
 
     if ( tab == NULL ) {
       fprintf( stderr, "Unable to allocate %d elements\n", n ) ;
       return 1 ;
     }
     /* Initialize the arrays for sending to other tasks */ 
-    int to, rec = 0;
     for ( i = 1; i < m + 1; i++ ){
       for(j = 0; j < n; j++ ){
         tab[j] = lrand48()%n;
       } // End for j
 
-      if( size < (m + 1) ) {
-        to = (i + rec) % size;
-        if ( !to ) { to++; rec++; }
-      } else to = i;
+    // Looking for ready task
+    int done;
+    MPI_Status sta;
+    do{
+      do {
+        MPI_Iprobe(MPI_ANY_SOURCE, 4, MPI_COMM_WORLD, &done, &sta);
+      } while (!done);
+      MPI_Recv(&ready, 1, MPI_INT, sta.MPI_SOURCE, sta.MPI_TAG, MPI_COMM_WORLD, &sta);
+    }
+    while (!ready);
+    tasks[i-1] = sta.MPI_SOURCE;
 	// Message for continuing
       end = 1;
-      MPI_Send(&end, 1, MPI_INT, to, 2, MPI_COMM_WORLD);
-      MPI_Send(tab, n, MPI_INT, to, 1, MPI_COMM_WORLD);
+      MPI_Send(&end, 1, MPI_INT, sta.MPI_SOURCE, 2, MPI_COMM_WORLD);
+      MPI_Send(tab, n,  MPI_INT,  sta.MPI_SOURCE, 1, MPI_COMM_WORLD);
+      ready = 0;
     } // End for i
   
     // Sending End Message to the tasks
@@ -104,6 +87,13 @@ int main(int argc, char**argv) {
     t1=MPI_Wtime();
   } // End if (rank == 0)
   else{ // Other tasks
+  
+    // Saying to root that I am ready
+    MPI_Request request;
+    ready = 1;
+    MPI_Isend(&ready,1,MPI_INT,0,4,MPI_COMM_WORLD,&request);
+
+    // Waiting Response from root for table
     MPI_Recv(&end, 1, MPI_INT, 0, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     while( end ){
       MPI_Recv(tab, n, MPI_INT, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -112,10 +102,13 @@ int main(int argc, char**argv) {
       for(j=0; j<n; j++)
         if(tab[j] > max)
           max = tab[j];
-  
-    MPI_Send(&max, 1, MPI_INT, 0, 3, MPI_COMM_WORLD);
-    // Looking for new array
-    MPI_Recv(&end, 1, MPI_INT, 0, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      // Sending to root the max of the array
+      MPI_Send(&max, 1, MPI_INT, 0, 3, MPI_COMM_WORLD);
+      // Saying to root that I am ready
+      ready = 1;
+      MPI_Isend(&ready,1,MPI_INT,0,4,MPI_COMM_WORLD,&request);
+      // Waiting Response from root for new table
+      MPI_Recv(&end, 1, MPI_INT, 0, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
 
   // Free the table
@@ -130,16 +123,11 @@ int main(int argc, char**argv) {
 #endif
 
   if( rank == 0 ){
+    // Printing the maxs
     int from, rec = 0;
     for (i = 1 ; i < m + 1; i++){
-      if( size < (m + 1) ) {
-        from = (i + rec) % size ;
-        if ( !from ) { from++; rec++; }
-      } else from = i;
-
-    // Receiving the max from the root
-      MPI_Recv(&max, 1, MPI_INT, from, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      printf("(Seed %d, Size %d) Max value = %d, Array number %d, task %d\n", s, n, max, i-1,from);
+      MPI_Recv(&max, 1, MPI_INT,tasks[i-1], 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      printf("(Seed %d, Size %d) Max value = %d, Array number %d, task %d\n", s, n, max, i-1,tasks[i-1]);
     }
         /* stop the measurement */
     t2=MPI_Wtime();
