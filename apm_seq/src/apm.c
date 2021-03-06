@@ -107,8 +107,6 @@ int levenshtein(char *s1, char *s2, int len, int * column) {
 }
 
 
-
-
 int 
 main( int argc, char ** argv )
 {
@@ -229,7 +227,6 @@ main( int argc, char ** argv )
           printf( "Procesing byte %d (out of %d)\n", j, n_bytes ) ;
           }
 #endif
-
           size = size_pattern ;
           if ( n_bytes - j < size_pattern )
           {
@@ -245,10 +242,8 @@ main( int argc, char ** argv )
 
       free( column );
   }
-
   /* Timer stop */
   gettimeofday(&t2, NULL);
-
   duration = (t2.tv_sec -t1.tv_sec)+((t2.tv_usec-t1.tv_usec)/1e6);
 
   printf( "APM done in %lf s\n", duration ) ;
