@@ -118,33 +118,47 @@
      return(column[len]);
  }
  
-
-int approx_factor = 0; // Global
-
-
- __global__ void cuda_call( int n_bytes, char *buf, char *pattern, int *column, int batch_size, int size_pattern, int *matches ) {
+ __global__ void cuda_call( int n_bytes, char *buf, char *pattern, int batch_size, int size_pattern, int *matches,  int approx_factor) {
     /* Traverse the input data up to the end of the file */
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int start = tid * batch_size;
     int end = start + batch_size;
+    int *column;
+    unsigned int j;
     if( end > n_bytes ) end = n_bytes;
+    if ( start < n_bytes ){
+      column = (int *)malloc( (size_pattern+1) * sizeof( int ) ) ;
+      for (j = start; j < end; j++ ){ 
+        int distance = 0 ;
+        int size = size_pattern;
+        unsigned int x, y, lastdiag, olddiag;
 
-    for (int j = start; j < end; j++ ) 
-    {
-      int distance = 0 ;
-      int size ;
-      size = size_pattern ;
-      if ( n_bytes - j < size_pattern )
-      {
-        size = n_bytes - j ;
-      }
-      distance = levenshtein( pattern, &buf[j], size, column ) ;
+        if ( n_bytes - j < size_pattern ){
+          size = n_bytes - j ;
+        }
+        for (y = 1; y <= size; y++)
+          column[y] = y;
+        
+        for (x = 1; x <= size; x++) {
+            column[0] = x;
+            lastdiag = x-1 ;
+            for (y = 1; y <= size; y++) {
+                olddiag = column[y];
+                column[y] = MIN3(
+                        column[y] + 1, 
+                        column[y-1] + 1, 
+                        lastdiag + (pattern[y-1] == buf[ j + x-1] ? 0 : 1)
+                        );
+                lastdiag = olddiag;
+            }
+        }
 
-      if ( distance <= approx_factor ) {
-        matches[tid]++ ;
-      }
-    }
+        distance = column[size];
+        if ( distance <= approx_factor ) 
+          matches[tid]++ ;
 
+        } // End for j
+    } // End if start
 }
 
 int sum( int *matches, int size ){
@@ -160,13 +174,14 @@ int sum( int *matches, int size ){
    char ** pattern ;
    char * filename ;
    int nb_patterns = 0 ;
-   int i, j ;
+   int i;
    char *buf, *dBuf;
    struct timeval t1, t2;
    double duration ;
    int n_bytes ;
    int * n_matches ;
- 
+   int approx_factor = 0;
+
    /* Check number of arguments */
    if ( argc < 4 ) 
    {
@@ -246,14 +261,11 @@ int sum( int *matches, int size ){
    /* Timer start */
    gettimeofday(&t1, NULL);
 
-
- 
    /* Check each pattern one by one */
    for ( i = 0 ; i < nb_patterns ; i++ )
    {
       int size_pattern = strlen(pattern[i]) ;
-      int * column, *dColumn;
-      int matches, dMatches;
+      int *matches, *dMatches;
       int nb_threads = 1024, batch_size = 1000;
       int nb_blocks = (n_bytes / batch_size + nb_threads) / nb_threads;
       char *dPatern;
@@ -263,24 +275,23 @@ int sum( int *matches, int size ){
       cudaMalloc(&dPatern, (size_pattern+1) * sizeof( char ) );
       cudaMemcpy(dPatern, pattern[i], size_pattern+1, cudaMemcpyHostToDevice);
  
-      column = (int *)malloc( (size_pattern+1) * sizeof( int ) ) ;
-      cudaMalloc(&dColumn, (size_pattern+1) * sizeof( int ));
 
       matches = (int *)malloc( (nb_blocks*nb_threads) * sizeof( int ) ) ;
+      for( int j = 0; j < (nb_blocks*nb_threads); j++ )
+          matches[j] = 0;
       cudaMalloc(&dMatches, (nb_blocks*nb_threads) * sizeof( int ));
       cudaMemcpy(dMatches, matches, (nb_blocks*nb_threads) * sizeof( int ), cudaMemcpyHostToDevice);
       
-      cuda_call<<<nb_blocks, nb_threads>>>(   , dBuf, dPatern, dColumn, batch_size, size_pattern, dMatches );
+      cuda_call<<<nb_blocks, nb_threads>>>(  n_bytes , dBuf, dPatern, batch_size, size_pattern, dMatches, approx_factor );
       cudaDeviceSynchronize();
 
       cudaMemcpy(matches, dMatches, (nb_blocks*nb_threads) * sizeof( int ), cudaMemcpyDeviceToHost);
     
+
       n_matches[i] = sum(matches,nb_blocks*nb_threads);
 
-      free( column );
-      cudaFree( dColumn );
-      cudaFree( dPatern );
       free(matches);
+      cudaFree( dPatern );
       cudaFree( dMatches);
    }
    /* Timer stop */
